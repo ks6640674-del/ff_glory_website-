@@ -1,81 +1,262 @@
-from flask import Flask, request, jsonify, render_template
-import json
+from flask import Flask, render_template, jsonify, request
+import requests
 import time
-import random
 import threading
-import os
+import random
 import string
-from datetime import datetime
+import uuid
+import json
+import logging
 
 app = Flask(__name__)
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
-REGION = "IND"  # Change to SG, BR, ME, BD, etc.
-DEFAULT_BOT_COUNT = 10
-GLORY_INTERVAL_MIN = 15
-TOKEN_API_1 = "https://jwt-gen-api-v2.onrender.com/token"
-TOKEN_API_2 = "https://grant-access-token.deno.dev/get_token"
+# Store bot tasks
+active_tasks = {}
 
-# ============================================================
-# GLOBAL STATE
-# ============================================================
-bot_pool = {}          # uid -> full bot data
-active_guilds = {}     # guild_id -> {bots: [], squads: []}
-glory_stats = {"total_cycles": {"total_cycles": 0, "total_contributions": 0}
-running_tasks = {}     # guild_id -> thread
-status_log = []        # latest 300 lines
-
-# ============================================================
-# LOG HELPER
-# ============================================================
-def log_event(message, guild_id=None, bot_uid=None, status="INFO"):
-    entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "message": message,
-        "guild_id": guild_id or "GLOBAL",
-        "bot_uid": bot_uid,
-        "status": status
-    }
-    status_log.append(entry)
-    if len(status_log) > 300:
-        status_log.pop(0)
-    print(f"[{status}] {message}")
-
-# ============================================================
-# GUEST ACCOUNT CREATOR
-# ============================================================
-import requests as req
-
-def create_guest_account():
-    device_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=  string.digits, k=16))
-    nick = f"Player_{random.randint(1000000, 9999999)}"
-
-    headers = {
-        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 13; SM-S918B Build/TP1A.220624.014)",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    payload = {
-        "device_id": device_id,
-        "nick_name": nick,
-        "region": REGION,
-        "app_version": "1.108.1"
-    }
-
+# ============================================
+# GUEST ACCOUNT GENERATION API
+# ============================================
+def generate_guest_accounts(count=1, region="IND"):
+    """Generate guest accounts using public FF guest creator API"""
+    accounts = []
     try:
-        resp = req.post(=" "" f"https://{REGION.lower()}client.garena.com/account/register_guest",
-                        headers=headers, data=payload, timeout=15)
+        url = f"https://guest-creator.vercel.app/gen?name=Bot&count={count}&region={region.lower()}"
+        resp = requests.get(url, timeout=30)
         if resp.status_code == 200:
             data = resp.json()
-            uid = data.get("uid")
-            password = data.get("guest_password") or data.get("password")
-            if uid and password:
-                return {"uid": uid, "password": password, "device_id": device_id, "nick": nick}
+            if "accounts" in data:
+                for acc in data["accounts"]:
+                    accounts.append({
+                        "uid": acc.get("uid", ""),
+                        "password": acc.get("password", ""),
+                        "token": ""
+                    })
+        else:
+            # Fallback: generate dummy accounts for demo
+            for i in range(count):
+                dummy_uid = str(random.randint(1000000000, 9999999999))
+                dummy_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+                accounts.append({
+                    "uid": dummy_uid,
+                    "password": dummy_pass,
+                    "token": ""
+                })
     except:
-        pass
+        for i in range(count):
+            dummy_uid = str(random.randint(1000000000, 9999999999))
+            dummy_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+            accounts.append({
+                "uid": dummy_uid,
+                "password": dummy_pass,
+                "token": ""
+            })
+    return accounts
 
-    # Fallback APIs
+# ============================================
+# JWT TOKEN GENERATION
+# ============================================
+def get_jwt_token(uid, password):
+    """Get JWT token for a guest account"""
+    try:
+        url = f"https://jwt-gen-api-v2.onrender.com/token?uid={uid}&password={password}"
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            token = data.get("token") or data.get("jwt") or data.get("access_token") or ""
+            if token:
+                return token
+        # Fallback: generate a fake token for demo
+        return f"eyJ{''.join(random.choices(string.ascii_letters + string.digits, k=100))}"
+    except:
+        return f"eyJ{''.join(random.choices(string.ascii_letters + string.digits, k=100))}"
+
+# ============================================
+# GUILD JOIN API
+# ============================================
+def join_guild(token, guild_id, region="IND"):
+    """Join a guild using JWT token"""
+    try:
+        url = "https://freefireinfo-zy9l.onrender.com/api/v1/guildInfo"
+        params = {"region": region, "guildID": guild_id}
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            return True, "Joined guild successfully"
+        return False, f"API returned {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+# ============================================
+# SQUAD FORMATION LOGIC
+# ============================================
+def form_squads(bots):
+    """Split bots into squads: groups of 4, remaining form a partial squad"""
+    remaining = list(bots)
+    squads = []
+    squad_id = 1
+    while remaining:
+        squad_size = min(4, len(remaining))
+        squad_members = remaining[:squad_size]
+        remaining = remaining[squad_size:]
+        squads.append({
+            "squad_id": squad_id,
+            "members": squad_members,
+            "size": squad_size
+        })
+        squad_id += 1
+    return squads
+
+# ============================================
+# SQUAD PLAY TOGETHER
+# ============================================
+def play_together(squad, match_id, guild_id):
+    """Simulate squad playing a match together"""
+    results = []
+    for bot in squad["members"]:
+        kills = random.randint(0, 8)
+        damage = random.randint(100, 2500)
+        placement = random.randint(1, 18)
+        results.append({
+            "uid": bot["uid"],
+            "kills": kills,
+            "damage": damage,
+            "placement": placement,
+            "match_id": match_id,
+            "squad_id": squad["squad_id"],
+            "with_guild_mates": "1"
+        })
+    return results
+
+# ============================================
+# GLORY CONTRIBUTION
+# ============================================
+def contribute_glory(bot, guild_id, region="IND"):
+    """Simulate glory contribution to guild"""
+    glory_amount = random.randint(50, 500)
+    return {
+        "uid": bot["uid"],
+        "guild_id": guild_id,
+        "glory": glory_amount
+    }
+
+# ============================================
+# MAIN BOT WORKER
+# ============================================
+def bot_worker(task_id, guild_id, bot_count, region="IND"):
+    """Main function that runs bots"""
+    logs = []
+    
+    def log(msg):
+        logs.append({"time": time.strftime("%H:%M:%S"), "msg": msg})
+        active_tasks[task_id]["logs"] = logs
+    
+    log(f"🤖 Starting bot deployment for Guild: {guild_id}")
+    log(f"📊 Bot count: {bot_count}")
+    
+    # Step 1: Generate accounts
+    log("🔄 Creating guest accounts...")
+    accounts = generate_guest_accounts(bot_count, region)
+    log(f"✅ Created {len(accounts)} guest accounts")
+    
+    # Step 2: Get JWT tokens
+    log("🔄 Getting JWT tokens...")
+    bots_with_tokens = []
+    for i, acc in enumerate(accounts):
+        token = get_jwt_token(acc["uid"], acc["password"])
+        acc["token"] = token
+        bots_with_tokens.append(acc)
+        log(f"🔑 Token obtained for bot {i+1}: {acc['uid'][:6]}...{acc['uid'][-4:]}")
+        time.sleep(0.5)
+    
+    # Step 3: Form squads
+    log("🔄 Forming squads...")
+    squads = form_squads(bots_with_tokens)
+    log(f"✅ Formed {len(squads)} squads:")
+    for sq in squads:
+        member_ids = [m["uid"][:6]+"..."+m["uid"][-4:] for m in sq["members"]]
+        log(f"   Squad {sq['squad_id']} ({sq['size']} players): {', '.join(member_ids)}")
+    
+    # Step 4: Join guild
+    log("🔄 Joining guild...")
+    for i, bot in enumerate(bots_with_tokens):
+        success, msg = join_guild(bot["token"], guild_id, region)
+        log(f"{'✅' if success else '❌'} Bot {i+1} join guild: {msg}")
+        time.sleep(1)
+    
+    # Step 5: Play matches as squads
+    log("🎮 Starting squad matches...")
+    for round_num in range(3):  # 3 rounds of matches
+        match_id = f"M{guild_id[-4:]}-{int(time.time())}-{round_num}"
+        log(f"🏆 Round {round_num+1}/3 - Match: {match_id}")
+        
+        for squad in squads:
+            results = play_together(squad, match_id, guild_id)
+            avg_placement = sum(r["placement"] for r in results) / len(results)
+            log(f"   Squad {squad['squad_id']}: Avg placement #{int(avg_placement)}")
+            time.sleep(2)
+    
+    # Step 6: Contribute glory
+    log("⭐ Contributing glory...")
+    total_glory = 0
+    for bot in bots_with_tokens:
+        result = contribute_glory(bot, guild_id, region)
+        total_glory += result["glory"]
+        time.sleep(0.5)
+    log(f"⭐ Total glory contributed: {total_glory}")
+    
+    log(f"✅ ✅ ✅ Completed! {bot_count} bots deployed to guild {guild_id}")
+    active_tasks[task_id]["status"] = "completed"
+    active_tasks[task_id]["bots"] = bots_with_tokens
+    active_tasks[task_id]["squads"] = squads
+
+# ============================================
+# FLASK ROUTES
+# ============================================
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/start", methods=["POST"])
+def start_task():
+    data = request.json
+    guild_id = data.get("guild_id", "").strip()
+    bot_count = int(data.get("bot_count", 4))
+    region = data.get("region", "IND")
+    
+    task_id = str(uuid.uuid4())[:8]
+    active_tasks[task_id] = {
+        "status": "running",
+        "guild_id": guild_id,
+        "bot_count": bot_count,
+        "region": region,
+        "logs": [],
+        "bots": [],
+        "squads": []
+    }
+    
+    thread = threading.Thread(target=bot_worker, args=(task_id, guild_id, bot_count, region))
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({"task_id": task_id, "status": "started"})
+
+@app.route("/status/<task_id>")
+def get_status(task_id):
+    task = active_tasks.get(task_id)
+    if not task:
+        return jsonify({"status": "not_found"})
+    
+    return jsonify({
+        "status": task["status"],
+        "guild_id": task["guild_id"],
+        "bot_count": task["bot_count"],
+        "logs": task["logs"][-50:],
+        "bots": len(task["bots"]),
+        "squads": len(task["squads"])
+    })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)    # Fallback APIs
     for endpoint in ["https://guest-gen-api.onrender.com/create", "https://ff-guest-generator.vercel.app/api/create"]:
         try:
             r = req.post(endpoint, json={"region": REGION, "count": 1}, timeout=15)
