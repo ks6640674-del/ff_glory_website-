@@ -1,81 +1,193 @@
 from flask import Flask, render_template, jsonify, request
-import requests
-import time
 import threading
 import random
-import string
 import uuid
-import json
-import logging
+import time
+import os
 
 app = Flask(__name__)
 
-# Store bot tasks
 active_tasks = {}
 
-# ============================================
-# GUEST ACCOUNT GENERATION API
-# ============================================
-def generate_guest_accounts(count=1, region="IND"):
-    """Generate guest accounts using public FF guest creator API"""
-    accounts = []
-    try:
-        url = f"https://guest-creator.vercel.app/gen?name=Bot&count={count}&region={region.lower()}"
-        resp = requests.get(url, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            if "accounts" in data:
-                for acc in data["accounts"]:
-                    accounts.append({
-                        "uid": acc.get("uid", ""),
-                        "password": acc.get("password", ""),
-                        "token": ""
-                    })
-        else:
-            # Fallback: generate dummy accounts for demo
-            for i in range(count):
-                dummy_uid = str(random.randint(1000000000, 9999999999))
-                dummy_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
-                accounts.append({
-                    "uid": dummy_uid,
-                    "password": dummy_pass,
-                    "token": ""
-                })
-    except:
-        for i in range(count):
-            dummy_uid = str(random.randint(1000000000, 9999999999))
-            dummy_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
-            accounts.append({
-                "uid": dummy_uid,
-                "password": dummy_pass,
-                "token": ""
-            })
-    return accounts
+# =====================================================
+# PLAYER GENERATOR
+# =====================================================
 
-# ============================================
-# JWT TOKEN GENERATION
-# ============================================
-def get_jwt_token(uid, password):
-    """Get JWT token for a guest account"""
-    try:
-        url = f"https://jwt-gen-api-v2.onrender.com/token?uid={uid}&password={password}"
-        resp = requests.get(url, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            token = data.get("token") or data.get("jwt") or data.get("access_token") or ""
-            if token:
-                return token
-        # Fallback: generate a fake token for demo
-        return f"eyJ{''.join(random.choices(string.ascii_letters + string.digits, k=100))}"
-    except:
-        return f"eyJ{''.join(random.choices(string.ascii_letters + string.digits, k=100))}"
+def generate_players(count):
+    players = []
 
-# ============================================
-# GUILD JOIN API
-# ============================================
-def join_guild(token, guild_id, region="IND"):
-    """Join a guild using JWT token"""
-    try:
+    for i in range(count):
+        players.append({
+            "uid": str(random.randint(1000000000, 9999999999)),
+            "name": f"Player_{random.randint(1000,9999)}",
+            "skill": random.randint(1, 100)
+        })
+
+    return players
+
+# =====================================================
+# SQUAD SYSTEM
+# =====================================================
+
+def form_squads(players):
+    squads = []
+
+    random.shuffle(players)
+
+    squad_id = 1
+
+    while players:
+        team = players[:4]
+        players = players[4:]
+
+        squads.append({
+            "squad_id": squad_id,
+            "players": team,
+            "size": len(team)
+        })
+
+        squad_id += 1
+
+    return squads
+
+# =====================================================
+# MATCH SIMULATION
+# =====================================================
+
+def simulate_match(squad):
+    results = []
+
+    placement = random.randint(1, 12)
+
+    for player in squad["players"]:
+
+        kills = max(0, int(random.gauss(player["skill"] / 15, 2)))
+
+        damage = kills * random.randint(100, 350)
+
+        results.append({
+            "uid": player["uid"],
+            "name": player["name"],
+            "kills": kills,
+            "damage": damage,
+            "placement": placement
+        })
+
+    return {
+        "squad_id": squad["squad_id"],
+        "placement": placement,
+        "results": results
+    }
+
+# =====================================================
+# BACKGROUND WORKER
+# =====================================================
+
+def simulation_worker(task_id, player_count):
+
+    logs = []
+
+    def log(message):
+
+        logs.append({
+            "time": time.strftime("%H:%M:%S"),
+            "message": message
+        })
+
+        active_tasks[task_id]["logs"] = logs
+
+    log("Creating players...")
+
+    players = generate_players(player_count)
+
+    log(f"{len(players)} players created")
+
+    squads = form_squads(players)
+
+    log(f"{len(squads)} squads formed")
+
+    match_results = []
+
+    for squad in squads:
+
+        log(f"Squad {squad['squad_id']} entering match")
+
+        result = simulate_match(squad)
+
+        match_results.append(result)
+
+        log(
+            f"Squad {squad['squad_id']} finished "
+            f"placement #{result['placement']}"
+        )
+
+        time.sleep(2)
+
+    active_tasks[task_id]["status"] = "completed"
+    active_tasks[task_id]["results"] = match_results
+
+    log("Simulation complete")
+
+# =====================================================
+# ROUTES
+# =====================================================
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/start", methods=["POST"])
+def start():
+
+    data = request.get_json()
+
+    player_count = int(data.get("players", 8))
+
+    task_id = str(uuid.uuid4())[:8]
+
+    active_tasks[task_id] = {
+        "status": "running",
+        "logs": [],
+        "results": []
+    }
+
+    thread = threading.Thread(
+        target=simulation_worker,
+        args=(task_id, player_count),
+        daemon=True
+    )
+
+    thread.start()
+
+    return jsonify({
+        "task_id": task_id,
+        "status": "started"
+    })
+
+@app.route("/status/<task_id>")
+def status(task_id):
+
+    task = active_tasks.get(task_id)
+
+    if not task:
+        return jsonify({
+            "error": "Task not found"
+        }), 404
+
+    return jsonify(task)
+
+# =====================================================
+# MAIN
+# =====================================================
+
+if __name__ == "__main__":
+
+    port = int(os.environ.get("PORT", 5000))
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+	)    try:
         url = "https://freefireinfo-zy9l.onrender.com/api/v1/guildInfo"
         params = {"region": region, "guildID": guild_id}
         headers = {"Authorization": f"Bearer {token}"}
