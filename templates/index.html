@@ -1,197 +1,66 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Free Fire Guild Glory Bot</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background: #0a0e17; color: #e0e0e0; font-family: 'Segoe UI', Tahoma, sans-serif; }
-        .card { background: #141b2d; border: 1px solid #1e2a45; border-radius: 12px; }
-        .card-header { background: #1a2338; border-bottom: 1px solid #2a3a5c; color: #00ff88; font-weight: bold; }
-        .btn-neon { background: linear-gradient(135deg, #00ff88, #00cc6a); color: #000; font-weight: bold; border: none; }
-        .btn-neon:hover { transform: scale(1.02); box-shadow: 0 0 20px rgba(0,255,136,0.4); }
-        .btn-danger-neon { background: linear-gradient(135deg, #ff4444, #cc0000); color: #fff; font-weight: bold; border: none; }
-        .log-area { background: #0d1117; border: 1px solid #1e2a45; border-radius: 8px; height: 400px; overflow-y: auto; padding: 15px; font-family: 'Courier New', monospace; font-size: 13px; }
-        .log-entry { padding: 4px 0; border-bottom: 1px solid #1a1f2e; }
-        .log-time { color: #6b7280; margin-right: 10px; }
-        .stat-box { background: #1a2338; border-radius: 10px; padding: 20px; text-align: center; border: 1px solid #2a3a5c; }
-        .stat-number { font-size: 2.5rem; font-weight: bold; color: #00ff88; }
-        .stat-label { color: #8b95a5; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
-        .squad-badge { background: #2a3a5c; color: #00ff88; padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; }
-        .bot-badge { background: #1e2a45; color: #aabbcc; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin: 2px; }
-        .status-running { color: #00ff88; }
-        .status-completed { color: #ffaa00; }
-        .glory-text { color: #ffd700; }
-    </style>
+    <title>Squad Simulator</title>
 </head>
 <body>
-    <div class="container py-4">
-        <div class="text-center mb-4">
-            <h1 class="display-5 fw-bold" style="color: #00ff88;">🔥 Free Fire Guild Glory</h1>
-            <p class="text-secondary">Automated Squad Bot System</p>
-        </div>
 
-        <div class="row">
-            <!-- Input Panel -->
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-header">⚙️ Bot Controller</div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">Guild ID</label>
-                            <input type="text" id="guildId" class="form-control" placeholder="Enter Guild ID" style="background:#0d1117;border:1px solid #2a3a5c;color:#fff;">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Bot Count</label>
-                            <input type="number" id="botCount" class="form-control" value="4" min="1" max="100" style="background:#0d1117;border:1px solid #2a3a5c;color:#fff;">
-                            <small class="text-secondary">4 bots = 1 squad, 8 bots = 2 squads, etc.</small>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Region</label>
-                            <select id="region" class="form-select" style="background:#0d1117;border:1px solid #2a3a5c;color:#fff;">
-                                <option value="IND">🇮🇳 India</option>
-                                <option value="SG">🌏 Singapore</option>
-                                <option value="ID">🇮🇩 Indonesia</option>
-                                <option value="VN">🇻🇳 Vietnam</option>
-                                <option value="TH">🇹🇭 Thailand</option>
-                                <option value="BR">🇧🇷 Brazil</option>
-                                <option value="RU">🇷🇺 Russia</option>
-                                <option value="NA">🇺🇸 North America</option>
-                                <option value="PK">🇵🇰 Pakistan</option>
-                                <option value="BD">🇧🇩 Bangladesh</option>
-                                <option value="ME">🌍 Middle East</option>
-                            </select>
-                        </div>
-                        <button id="startBtn" class="btn btn-neon w-100 py-3 mb-2" onclick="startTask()">
-                            🚀 DEPLOY BOTS
-                        </button>
-                        <button id="stopBtn" class="btn btn-danger-neon w-100 py-2" onclick="stopTask()" disabled>
-                            ⏹ STOP
-                        </button>
-                    </div>
-                </div>
+<h1>Squad Simulator</h1>
 
-                <!-- Active Tasks -->
-                <div class="card mt-3">
-                    <div class="card-header">📋 Active Tasks</div>
-                    <div class="card-body" id="taskList">
-                        <p class="text-secondary mb-0">No active tasks</p>
-                    </div>
-                </div>
-            </div>
+<input type="number" id="players" value="8">
 
-            <!-- Status Dashboard -->
-            <div class="col-md-8">
-                <div class="row mb-3">
-                    <div class="col-4">
-                        <div class="stat-box">
-                            <div class="stat-number" id="statBots">0</div>
-                            <div class="stat-label">Bots Active</div>
-                        </div>
-                    </div>
-                    <div class="col-4">
-                        <div class="stat-box">
-                            <div class="stat-number" id="statSquads">0</div>
-                            <div class="stat-label">Squads Formed</div>
-                        </div>
-                    </div>
-                    <div class="col-4">
-                        <div class="stat-box">
-                            <div class="stat-number" id="statGuilds">0</div>
-                            <div class="stat-label">Guilds Targeted</div>
-                        </div>
-                    </div>
-                </div>
+<button onclick="startSimulation()">
+    Start
+</button>
 
-                <!-- Live Logs -->
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>📡 Live Operation Logs</span>
-                        <small id="runningStatus" class="text-secondary">⏸ Idle</small>
-                    </div>
-                    <div class="card-body p-2">
-                        <div class="log-area" id="logArea">
-                            <div class="log-entry"><span class="log-time">[SYSTEM]</span> Waiting for deployment...</div>
-                        </div>
-                    </div>
-                </div>
+<pre id="output"></pre>
 
-                <!-- Squad Display -->
-                <div class="card mt-3">
-                    <div class="card-header">👥 Squad Formation</div>
-                    <div class="card-body" id="squadDisplay">
-                        <p class="text-secondary mb-0">No squads formed yet</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+<script>
+async function startSimulation() {
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        let currentTaskId = null;
-        let statusInterval = null;
+    const players =
+        document.getElementById("players").value;
 
-        function startTask() {
-            const guildId = document.getElementById('guildId').value.trim();
-            const botCount = document.getElementById('botCount').value;
-            const region = document.getElementById('region').value;
+    const res = await fetch("/start", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            players: players
+        })
+    });
 
-            if (!guildId) {
-                alert('Please enter a Guild ID');
-                return;
-            }
+    const data = await res.json();
 
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            document.getElementById('runningStatus').innerHTML = '🟢 Running';
-            document.getElementById('logArea').innerHTML = '';
+    poll(data.task_id);
+}
 
-            fetch('/start', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({guild_id: guildId, bot_count: botCount, region: region})
-            })
-            .then(r => r.json())
-            .then(data => {
-                currentTaskId = data.task_id;
-                addLog('SYSTEM', `Task started: ${data.task_id}`);
-                
-                if (statusInterval) clearInterval(statusInterval);
-                statusInterval = setInterval(() => updateStatus(data.task_id), 2000);
-                updateTaskList();
-            });
+async function poll(taskId) {
+
+    const output =
+        document.getElementById("output");
+
+    const interval = setInterval(async () => {
+
+        const res =
+            await fetch(`/status/${taskId}`);
+
+        const data = await res.json();
+
+        output.textContent =
+            JSON.stringify(data, null, 2);
+
+        if (data.status === "completed") {
+            clearInterval(interval);
         }
 
-        function stopTask() {
-            if (statusInterval) clearInterval(statusInterval);
-            currentTaskId = null;
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            document.getElementById('runningStatus').innerHTML = '⏸ Stopped';
-            addLog('SYSTEM', 'Operation stopped by user');
-            updateTaskList();
-        }
+    }, 2000);
+}
+</script>
 
-        function updateStatus(taskId) {
-            fetch(`/status/${taskId}`)
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'completed' || data.status === 'not_found') {
-                    clearInterval(statusInterval);
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
-                    document.getElementById('runningStatus').innerHTML = '✅ Completed';
-                }
-                
-                document.getElementById('statBots').textContent = data.bots || 0;
-                document.getElementById('statSquads').textContent = data.squads || 0;
-                
-                if (data.logs) {
-                    const logArea = document.getElementById('logArea');
-                    logArea.innerHTML = data.logs.map(l => 
-                        `<div class="log-entry"><span class="log-time">[${l.time}]</span>${l.msg}</div>`
+</body>
+</html>                 `<div class="log-entry"><span class="log-time">[${l.time}]</span>${l.msg}</div>`
                     ).join('');
                     logArea.scrollTop = logArea.scrollHeight;
                 }
